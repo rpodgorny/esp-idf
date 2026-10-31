@@ -1888,7 +1888,7 @@ void btm_ble_link_encrypted(BD_ADDR bd_addr, UINT8 encr_enable)
 
     }
     /* to notify GATT to send data if any request is pending */
-    gatt_notify_enc_cmpl(p_dev_rec->ble.pseudo_addr);
+    gatt_notify_enc_cmpl(bd_addr);
 }
 #endif  ///SMP_INCLUDED == TRUE
 

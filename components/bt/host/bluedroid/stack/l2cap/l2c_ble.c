@@ -364,14 +364,25 @@ void l2cble_scanner_conn_comp (UINT16 handle, BD_ADDR bda, tBLE_ADDR_TYPE type,
 {
     tL2C_LCB            *p_lcb;
     tBTM_SEC_DEV_REC    *p_dev_rec = btm_find_or_alloc_dev (bda);
+    BD_ADDR             conn_bda;
 
     L2CAP_TRACE_DEBUG ("l2cble_scanner_conn_comp: HANDLE=%d addr_type=%d conn_interval=%d slave_latency=%d supervision_tout=%d",
                        handle,  type, conn_interval, conn_latency, conn_timeout);
 
-    l2cb.is_ble_connecting = FALSE;
-
     /* See if we have a link control block for the remote device */
     p_lcb = l2cu_find_lcb_by_bd_addr (bda, BT_TRANSPORT_LE);
+
+    /* A resolved peer completes under its bond address, which is not
+       necessarily the address the pending direct connection was created with
+       (an app may dial the peer by identity or by its current address). Adopt
+       the waiting link instead of allocating a second one. */
+    if (!p_lcb && l2cb.is_ble_connecting && p_dev_rec &&
+            btm_find_dev (l2cb.ble_connecting_bda) == p_dev_rec) {
+        memcpy (conn_bda, l2cb.ble_connecting_bda, BD_ADDR_LEN);
+        bda = conn_bda;
+        p_lcb = l2cu_find_lcb_by_bd_addr (bda, BT_TRANSPORT_LE);
+    }
+    l2cb.is_ble_connecting = FALSE;
 
     /* If we don't have one, create one. this is auto connection complete. */
     if (!p_lcb) {
