@@ -786,6 +786,7 @@ static void btm_ble_resolve_random_addr_on_adv(void *p_rec, void *p)
     tBTM_SEC_DEV_REC    *match_rec = (tBTM_SEC_DEV_REC *) p_rec;
     UINT8       addr_type = BLE_ADDR_RANDOM;
     BD_ADDR     bda;
+    BD_ADDR     zero_addr = {0};
     UINT8       *pp = (UINT8 *)p;
     UINT8           evt_type;
 
@@ -800,13 +801,34 @@ static void btm_ble_resolve_random_addr_on_adv(void *p_rec, void *p)
         match_rec->ble.active_addr_type = BTM_BLE_ADDR_RRA;
         memcpy(match_rec->ble.cur_rand_addr, bda, BD_ADDR_LEN);
 
-        if (btm_ble_init_pseudo_addr(match_rec, bda)) {
+        /* Track the address a connectable advert is on air with, so a dial by the
+           peer's identity can be translated back to the address the peer is
+           currently using (l2cble_init_direct_conn()). The setter in
+           btm_ble_process_adv_pkt() looks the record up by the raw advertised
+           address and cannot match a peer that was resolved asynchronously here.
+           Scan responses and non-connectable events are not dialable addresses. */
+        if (evt_type == 0x00 || evt_type == 0x01) { /* ADV_IND / ADV_DIRECT_IND */
+            match_rec->ble.current_addr_type = addr_type;
+            memcpy(match_rec->ble.current_addr, bda, BD_ADDR_LEN);
+            match_rec->ble.current_addr_valid = true;
+        }
+
+        if ((match_rec->ble.key_type & BTM_LE_KEY_PID) &&
+                memcmp(match_rec->ble.static_addr, zero_addr, BD_ADDR_LEN) != 0) {
+            /* Report the identity the peer distributed with its SMP keys. The
+               pseudo address is the one the bond was created on and stops being
+               on air at the first resolvable-address rotation, so a consumer that
+               keeps it can never connect again. */
+            memcpy(bda, match_rec->ble.static_addr, BD_ADDR_LEN);
+            addr_type = match_rec->ble.static_addr_type & (~BLE_ADDR_TYPE_ID_BIT);
+        } else if (btm_ble_init_pseudo_addr(match_rec, bda)) {
             memcpy(bda, match_rec->bd_addr, BD_ADDR_LEN);
+            addr_type = match_rec->ble.ble_addr_type;
         } else {
             // Assign the original address to be the current report address
             memcpy(bda, match_rec->ble.pseudo_addr, BD_ADDR_LEN);
+            addr_type = match_rec->ble.ble_addr_type;
         }
-        addr_type = match_rec->ble.ble_addr_type;
     }
 
     btm_ble_process_adv_pkt_cont(bda, addr_type, evt_type, pp);

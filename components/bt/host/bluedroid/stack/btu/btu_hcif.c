@@ -2656,10 +2656,23 @@ static void btm_ble_resolve_random_addr_adv_ext(void *p_rec, void *p)
 {
     tBTM_SEC_DEV_REC    *match_rec = (tBTM_SEC_DEV_REC *) p_rec;
     BD_ADDR     bda;
+    BD_ADDR     zero_addr = {0};
+    UINT8       addr_type = BLE_ADDR_RANDOM;
     UINT8       *pp = (UINT8 *)p+2; //jump to the location of addr_type
     if (match_rec) {
-        UINT8_TO_STREAM(pp, match_rec->ble.ble_addr_type);
+        addr_type = match_rec->ble.ble_addr_type;
         memcpy(bda, match_rec->ble.pseudo_addr, BD_ADDR_LEN);
+
+        /* Report the peer's identity when it distributed one, as the legacy path
+           does: the pseudo address is the RPA the bond was created on and stops
+           being on air at the first rotation. */
+        if ((match_rec->ble.key_type & BTM_LE_KEY_PID) &&
+                memcmp(match_rec->ble.static_addr, zero_addr, BD_ADDR_LEN) != 0) {
+            memcpy(bda, match_rec->ble.static_addr, BD_ADDR_LEN);
+            addr_type = match_rec->ble.static_addr_type & (~BLE_ADDR_TYPE_ID_BIT);
+        }
+
+        UINT8_TO_STREAM(pp, addr_type);
         BDADDR_TO_STREAM(pp,bda);
     }
 }
