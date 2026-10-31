@@ -4252,11 +4252,14 @@ void btm_sec_encrypt_change (UINT16 handle, UINT8 status, UINT8 encr_enable)
 
     if (p_acl && p_acl->transport == BT_TRANSPORT_LE) {
         BOOLEAN disconnect = (status != HCI_SUCCESS);
-        BD_ADDR pseudo_addr;
+        BD_ADDR link_addr;
 
-        /* btm_ble_link_encrypted() runs the SMP state machine and the upper layer
-           callbacks, which may retire p_dev_rec, so keep our own copy of the address. */
-        memcpy(pseudo_addr, p_dev_rec->ble.pseudo_addr, BD_ADDR_LEN);
+        /* The link, its GATT connection and its SMP channel are keyed by the
+           address the connect API was given, which is the address this ACL
+           carries - not the label the bond was created under. Take a copy
+           because btm_ble_link_encrypted() runs the SMP state machine and the
+           upper layer callbacks, which may retire p_dev_rec. */
+        memcpy(link_addr, p_acl->remote_addr, BD_ADDR_LEN);
 
 #if (BLE_SMP_UNBOND_ON_KEY_MISSING == TRUE)
         /* The peer answered our LL_ENC_REQ saying it no longer holds the LTK. Forget our
@@ -4271,15 +4274,15 @@ void btm_sec_encrypt_change (UINT16 handle, UINT8 status, UINT8 encr_enable)
         }
 #endif  ///BLE_SMP_UNBOND_ON_KEY_MISSING == TRUE
 
-        btm_ble_link_encrypted(pseudo_addr, encr_enable);
+        btm_ble_link_encrypted(link_addr, encr_enable);
 
         /* A peer that refuses to encrypt must not be able to drop our bond, otherwise it
            can strip the stored security level and then re-pair at a weaker one. Tear the
            link down instead and keep the keys until the application unbonds. */
-        if (disconnect && BTM_IsAclConnectionUp(pseudo_addr, BT_TRANSPORT_LE)) {
+        if (disconnect && BTM_IsAclConnectionUp(link_addr, BT_TRANSPORT_LE)) {
             BTM_TRACE_WARNING("%s LE encryption failed (status 0x%02x), disconnecting\n",
                               __func__, status);
-            btm_remove_acl(pseudo_addr, BT_TRANSPORT_LE);
+            btm_remove_acl(link_addr, BT_TRANSPORT_LE);
         }
         return;
     } else {
@@ -6011,6 +6014,9 @@ static char *btm_pair_state_descr (tBTM_PAIRING_STATE state)
 void btm_sec_dev_rec_cback_event (tBTM_SEC_DEV_REC *p_dev_rec, UINT8 res, BOOLEAN is_le_transport)
 {
     tBTM_SEC_CALLBACK   *p_callback;
+#if BLE_INCLUDED == TRUE
+    tACL_CONN           *p_acl;
+#endif
 
     if (p_dev_rec && p_dev_rec->p_callback) {
         p_callback = p_dev_rec->p_callback;
@@ -6018,7 +6024,11 @@ void btm_sec_dev_rec_cback_event (tBTM_SEC_DEV_REC *p_dev_rec, UINT8 res, BOOLEA
 
 #if BLE_INCLUDED == TRUE
         if (is_le_transport) {
-            (*p_callback) (p_dev_rec->ble.pseudo_addr, BT_TRANSPORT_LE, p_dev_rec->p_ref_data, res);
+            /* the callback was registered against the link's address, which is
+               the address the connect API was given */
+            p_acl = btm_handle_to_acl(p_dev_rec->ble_hci_handle);
+            (*p_callback) (p_acl ? p_acl->remote_addr : p_dev_rec->ble.pseudo_addr, BT_TRANSPORT_LE,
+                           p_dev_rec->p_ref_data, res);
         } else
 #endif
         {
